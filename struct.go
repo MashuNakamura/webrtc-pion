@@ -5,7 +5,9 @@ package main
 import "github.com/pion/rtp"
 
 type TrackHandler struct {
-	CurrTrack  int
-	TrackCount int
-	Packets    chan *rtp.Packet
+	CurrTrack     int
+	TrackCount    int
+	videoPackets  chan *rtp.Packet
+	screenPackets chan *rtp.Packet
+	screenInUse   bool
 }
