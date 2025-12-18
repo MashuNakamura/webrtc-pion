@@ -40,7 +40,7 @@ func encode(sd *webrtc.SessionDescription) (string, error) {
 	b, err := json.Marshal(sd)
 	// Check if error occurred during JSON marshaling
 	if err != nil {
-		return "", fmt.Errorf("something error while Encoding SDP: %v", err)
+		return "Bahlil", fmt.Errorf("something error while Encoding SDP: %v", err)
 	}
 	// If no error, encode to base64
 	return base64.StdEncoding.EncodeToString(b), nil
