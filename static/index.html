@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebRTC Self View</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        animation: {
+          'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        }
+      }
+    }
+  }
+</script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+
+<!-- Header -->
+<div class="text-center py-8">
+  <h1 class="text-4xl font-bold text-gray-800 mb-2">
+    <i class="fas fa-video text-blue-600"></i>
+    WebRTC Self View
+  </h1>
+  <p class="text-gray-600">Test your camera and screen sharing with Pion WebRTC</p>
+</div>
+
+<!-- Controls -->
+<div class="flex justify-center gap-4 mb-8">
+  <button 
+    id="toggleVideo"
+    class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition-all duration-200 transform hover:scale-105 flex items-center gap-2"
+  >
+    <i class="fas fa-video"></i>
+    Start Camera
+  </button>
+  
+  <button 
+    id="toggleScreen"
+    class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition-all duration-200 transform hover:scale-105 flex items-center gap-2"
+  >
+    <i class="fas fa-desktop"></i>
+    Share Screen
+  </button>
+</div>
+
+<!-- Video Streams -->
+<div class="max-w-6xl mx-auto px-6">
+  <!-- Camera Stream -->
+  <div class="mb-8">
+    <div class="bg-white rounded-2xl shadow-xl overflow-hidden">
+      <div class="bg-gradient-to-r from-blue-500 to-blue-600 px-6 py-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <i class="fas fa-user-circle text-white text-xl"></i>
+            <h3 class="text-white font-semibold text-lg">Your Camera</h3>
+          </div>
+          <div class="flex items-center gap-2">
+            <div id="cameraStatus" class="w-3 h-3 bg-red-500 rounded-full"></div>
+            <span id="cameraStatusText" class="text-white text-sm">Inactive</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="relative aspect-video bg-gray-900">
+        <video 
+          id="localVideo" 
+          autoplay 
+          muted 
+          playsinline 
+          class="w-full h-full object-cover hidden"
+        ></video>
+        
+        <div id="cameraPlaceholder" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
+          <i class="fas fa-user text-6xl mb-4 animate-pulse-slow"></i>
+          <h4 class="text-xl font-semibold mb-2">Camera Not Active</h4>
+          <p class="text-gray-500">Click "Start Camera" to begin</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Screen Share Stream -->
+  <div id="screenContainer" class="mb-8 hidden">
+    <div class="bg-white rounded-2xl shadow-xl overflow-hidden">
+      <div class="bg-gradient-to-r from-green-500 to-green-600 px-6 py-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <i class="fas fa-desktop text-white text-xl"></i>
+            <h3 class="text-white font-semibold text-lg">Screen Share</h3>
+          </div>
+          <div class="flex items-center gap-2">
+            <div id="screenStatus" class="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
+            <span class="text-white text-sm">Active</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="relative aspect-video bg-gray-900">
+        <video 
+          id="screenVideo" 
+          autoplay 
+          playsinline 
+          class="w-full h-full object-cover"
+        ></video>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Status Bar -->
+<div class="fixed bottom-6 left-6 right-6">
+  <div class="bg-white/80 backdrop-blur-lg rounded-full px-6 py-3 shadow-lg max-w-md mx-auto">
+    <div class="flex items-center justify-center gap-4 text-sm">
+      <div class="flex items-center gap-2">
+        <div id="connectionStatus" class="w-2 h-2 bg-gray-400 rounded-full"></div>
+        <span id="connectionText" class="text-gray-600">Disconnected</span>
+      </div>
+      <div class="w-px h-4 bg-gray-300"></div>
+      <div class="flex items-center gap-2">
+        <i class="fas fa-server text-gray-500"></i>
+        <span class="text-gray-600">Pion WebRTC</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+class WebRTCClient {
+  constructor() {
+    this.pc = null;
+    this.localStream = null;
+    this. screenStream = null;
+    this.isVideoActive = false;
+    this.isScreenActive = false;
+    
+    // DOM elements
+    this. localVideo = document.getElementById('localVideo');
+    this.screenVideo = document.getElementById('screenVideo');
+    this.toggleVideoBtn = document.getElementById('toggleVideo');
+    this.toggleScreenBtn = document.getElementById('toggleScreen');
+    this.cameraPlaceholder = document.getElementById('cameraPlaceholder');
+    this.screenContainer = document.getElementById('screenContainer');
+    this.cameraStatus = document.getElementById('cameraStatus');
+    this.cameraStatusText = document.getElementById('cameraStatusText');
+    this.connectionStatus = document.getElementById('connectionStatus');
+    this.connectionText = document.getElementById('connectionText');
+    
+    this.initEventListeners();
+    this.updateConnectionStatus('disconnected');
+  }
+  
+  initEventListeners() {
+    this.toggleVideoBtn.addEventListener('click', () => this.toggleVideo());
+    this.toggleScreenBtn.addEventListener('click', () => this.toggleScreen());
+  }
+  
+  async createPeerConnection() {
+    if (this.pc) return;
+    
+    // Simple config - no fancy STUN servers to avoid parsing errors
+    this.pc = new RTCPeerConnection({
+      iceServers: [
+        {
+          urls: "stun:stun.l. google.com:19302"
+        }
+      ]
+    });
+
+    this.pc.onicecandidate = e => { 
+      if (e.candidate) {
+        console.log('ICE candidate generated');
+      }
+    };
+
+    this. pc.onconnectionstatechange = () => {
+      console.log('Connection state:', this.pc.connectionState);
+      this.updateConnectionStatus(this. pc.connectionState);
+    };
+    
+    console.log('PeerConnection created successfully');
+  }
+  
+  updateConnectionStatus(state) {
+    const statusEl = this.connectionStatus;
+    const textEl = this.connectionText;
+    
+    switch(state) {
+      case 'connected':
+        statusEl.className = 'w-2 h-2 bg-green-400 rounded-full animate-pulse';
+        textEl. textContent = 'Connected';
+        textEl.className = 'text-green-600 font-medium';
+        break;
+      case 'connecting':
+        statusEl.className = 'w-2 h-2 bg-yellow-400 rounded-full animate-pulse';
+        textEl.textContent = 'Connecting';
+        textEl.className = 'text-yellow-600 font-medium';
+        break;
+      case 'failed':
+        statusEl.className = 'w-2 h-2 bg-red-400 rounded-full';
+        textEl.textContent = 'Failed';
+        textEl.className = 'text-red-600 font-medium';
+        break;
+      default: 
+        statusEl.className = 'w-2 h-2 bg-gray-400 rounded-full';
+        textEl.textContent = 'Disconnected';
+        textEl.className = 'text-gray-600';
+    }
+  }
+  
+  async toggleVideo() {
+    if (this.isVideoActive) {
+      this.stopVideo();
+    } else {
+      this.startVideo();
+    }
+  }
+  
+  async startVideo() {
+    const stream = await navigator.mediaDevices. getUserMedia({ 
+      video: true, 
+      audio: false 
+    });
+    
+    this.localStream = stream;
+    this.localVideo.srcObject = stream;
+    this.isVideoActive = true;
+    
+    // Update UI
+    this.localVideo.classList.remove('hidden');
+    this.cameraPlaceholder.classList.add('hidden');
+    this.cameraStatus.className = 'w-3 h-3 bg-green-400 rounded-full animate-pulse';
+    this.cameraStatusText.textContent = 'Active';
+    this.cameraStatusText.className = 'text-green-100 text-sm font-medium';
+    
+    // Update button
+    this.toggleVideoBtn.innerHTML = `
+      <i class="fas fa-video-slash"></i>
+      Stop Camera
+    `;
+    this.toggleVideoBtn.className = 'bg-red-600 hover: bg-red-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition-all duration-200 transform hover:scale-105 flex items-center gap-2';
+    
+    await this.createPeerConnection();
+    
+    // Add tracks to peer connection
+    stream.getTracks().forEach(track => {
+      this.pc.addTrack(track, stream);
+    });
+    
+    this.sendOffer();
+    
+    console.log('Camera started successfully');
+  }
+  
+  stopVideo() {
+    if (this.localStream) {
+      this.localStream.getTracks().forEach(track => track.stop());
+      this.localStream = null;
+    }
+    
+    this.isVideoActive = false;
+    
+    // Update UI
+    this. localVideo.classList.add('hidden');
+    this.localVideo.srcObject = null;
+    this.cameraPlaceholder.classList.remove('hidden');
+    this.cameraStatus.className = 'w-3 h-3 bg-red-500 rounded-full';
+    this.cameraStatusText.textContent = 'Inactive';
+    this.cameraStatusText.className = 'text-white text-sm';
+    
+    // Update button
+    this.toggleVideoBtn.innerHTML = `
+      <i class="fas fa-video"></i>
+      Start Camera
+    `;
+    this.toggleVideoBtn.className = 'bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition-all duration-200 transform hover:scale-105 flex items-center gap-2';
+    
+    console.log('Camera stopped');
+  }
+  
+  async toggleScreen() {
+    if (this.isScreenActive) {
+      this.stopScreen();
+    } else {
+      this.startScreen();
+    }
+  }
+  
+  async startScreen() {
+    const stream = await navigator. mediaDevices.getDisplayMedia({ 
+      video: true,
+      audio: false
+    });
+    
+    this.screenStream = stream;
+    this.screenVideo.srcObject = stream;
+    this.isScreenActive = true;
+    
+    // Show screen container
+    this.screenContainer.classList.remove('hidden');
+    
+    // Update button
+    this. toggleScreenBtn.innerHTML = `
+      <i class="fas fa-stop"></i>
+      Stop Sharing
+    `;
+    this.toggleScreenBtn.className = 'bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition-all duration-200 transform hover:scale-105 flex items-center gap-2';
+    
+    await this.createPeerConnection();
+    
+    // Add screen tracks
+    stream.getTracks().forEach(track => {
+      this.pc.addTrack(track, stream);
+    });
+    
+    // Handle when user stops sharing via browser UI
+    stream.getVideoTracks()[0].onended = () => {
+      console.log('Screen sharing ended by user');
+      this.stopScreen();
+    };
+    
+    this.sendOffer();
+    
+    console.log('Screen sharing started successfully');
+  }
+  
+  stopScreen() {
+    if (this.screenStream) {
+      this.screenStream.getTracks().forEach(track => track. stop());
+      this.screenStream = null;
+    }
+    
+    this.isScreenActive = false;
+    
+    // Hide screen container
+    this.screenContainer.classList.add('hidden');
+    this.screenVideo.srcObject = null;
+    
+    // Update button
+    this. toggleScreenBtn.innerHTML = `
+      <i class="fas fa-desktop"></i>
+      Share Screen
+    `;
+    this.toggleScreenBtn.className = 'bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition-all duration-200 transform hover:scale-105 flex items-center gap-2';
+    
+    console.log('Screen sharing stopped');
+  }
+  
+  async sendOffer() {
+    if (!this.pc) return;
+    
+    const offer = await this.pc.createOffer();
+    await this.pc.setLocalDescription(offer);
+    
+    console.log('Sending offer to backend.. .');
+    this.updateConnectionStatus('connecting');
+    
+    // Simple fetch - if fails, just log it
+    fetch('/offer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/sdp' },
+      body: offer. sdp
+    })
+    .then(response => {
+      if (response.ok) {
+        console.log('Backend responded OK');
+        this.updateConnectionStatus('connected');
+      } else {
+        console.log('Backend failed, but that\'s OK for demo');
+        this.updateConnectionStatus('disconnected');
+      }
+    })
+    .catch(err => {
+      console.log('Network error, but that\'s OK for demo:', err. message);
+      this.updateConnectionStatus('disconnected');
+    });
+  }
+}
+
+// Initialize when page loads
+document.addEventListener('DOMContentLoaded', () => {
+  window.webrtcClient = new WebRTCClient();
+  console.log('WebRTC Self View initialized');
+});
+</script>
+
+</body>
+</html>

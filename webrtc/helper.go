@@ -1,6 +1,6 @@
 // This File contain Helper Functions helper.go
 
-package main
+package webrtc
 
 import (
 	"bufio"
