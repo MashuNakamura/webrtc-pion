@@ -176,14 +176,14 @@ func StartPeerConnection(offerChan chan string, answerChan chan string) {
 					if trackNum == 0 {
 						select {
 						case GlobalTrackHandler.videoPackets <- packet:
-							fmt.Printf("[STREAM-END] Camera Stopped (ID: %s)\n", track.ID())
+							// fmt.Printf("[STREAM-END] Camera Stopped (ID: %s)\n", track.ID())
 						default:
 						}
 					} else {
 						GlobalTrackHandler.screenInUse = true
 						select {
 						case GlobalTrackHandler.screenPackets <- packet:
-							fmt.Printf("[STREAM-END] Screen Sharing Stopped (ID: %s)\n", track.ID())
+							// fmt.Printf("[STREAM-END] Screen Sharing Stopped (ID: %s)\n", track.ID())
 						default:
 						}
 					}

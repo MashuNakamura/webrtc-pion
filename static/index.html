@@ -357,9 +357,11 @@ class WebRTCClient {
   // Wait for ICE Gathering to complete
   console.log("Mengumpulkan jalur koneksi (ICE)...");
   await new Promise((resolve) => {
+    // Check if ICE gathering is already complete or not
     if (this.pc.iceGatheringState === 'complete') {
       resolve();
     } else {
+      // If not, wait for the state to change to 'complete' waiting for ICE candidates to be gathered
       const checkState = () => {
         if (this.pc.iceGatheringState === 'complete') {
           this.pc.removeEventListener('icegatheringstatechange', checkState);
@@ -387,6 +389,7 @@ class WebRTCClient {
       // Check if signaling state is stable before setting remote description
       if (this.pc.signalingState !== "stable") {
           await this.pc.setRemoteDescription(new RTCSessionDescription(answer));
+          // Connection should be established after setting remote description
           console.log('Koneksi Berhasil!');
           this.updateConnectionStatus('connected');
     } else {
