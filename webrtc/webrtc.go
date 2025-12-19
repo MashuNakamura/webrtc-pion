@@ -1,4 +1,4 @@
-// This is the file WebRTC implementation logic
+// This is the file WebRTC implementation logic (webrtc.go)
 
 package webrtc
 
@@ -10,10 +10,14 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-func StartPeerConnecion() {
+// GlobalTrackHandler to manage tracks and packets
+var GlobalTrackHandler *TrackHandler
+
+// StartPeerConnection initializes and starts the WebRTC PeerConnection
+func StartPeerConnection(offerChan chan string, answerChan chan string) {
 
 	// Load from TrackHandler Struct (struct.go)
-	var TrackHandler = &TrackHandler{
+	GlobalTrackHandler = &TrackHandler{
 		CurrTrack:     0,                          // Start from first track
 		TrackCount:    0,                          // No tracks yet
 		videoPackets:  make(chan *rtp.Packet, 60), // Buffer for video packets
@@ -36,14 +40,15 @@ func StartPeerConnecion() {
 				URLs: []string{
 					"turn:turn.example.com:3478", // Fallback TURN Server
 				},
-				Username:   "user",
+				Username:   "user", // TURN Dummy Credential (But TURN server is used if you have one and need the auth credentials)
 				Credential: "pass",
 			},
 		},
 	}
 
 	// Print ICE servers being used
-	fmt.Printf("Using ICE Servers: %+v\n", iceServers)
+	fmt.Println("\n[INIT] WebRTC Configuration Loaded")
+	fmt.Println("[INIT] Using ICE Servers: STUN (Google) + TURN (Fallback)")
 
 	// Create a new PeerConnection with the defined ICE servers (P2P)
 	peerConnection, err := webrtc.NewPeerConnection(iceServers)
@@ -55,12 +60,12 @@ func StartPeerConnecion() {
 	defer func() {
 		err := peerConnection.Close()
 		if err != nil {
-			fmt.Printf("Cannot close PeerConnection: %v\n", err)
+			fmt.Printf("[ERROR] Cannot close PeerConnection: %v\n", err)
 		}
 	}()
 
 	// Print successful creation of PeerConnection
-	fmt.Printf("PeerConnection created successfully with ICE servers.%+v\n", peerConnection)
+	fmt.Printf("[INIT] PeerConnection Created Successfully\n")
 
 	// =====================================================================================
 	// ================================ Create Video Track =================================
@@ -71,22 +76,20 @@ func StartPeerConnecion() {
 		MimeType: webrtc.MimeTypeVP8,
 	}, "video", "pion-video")
 
+	// Check for error during track creation
 	if err != nil {
 		panic(err)
 	}
 
-	// Print successful creation of Video Track
-	fmt.Printf("Video Track created: %+v\n", trackVideo)
-
 	// Add the video track to the PeerConnection (RTP Sender)
 	sendVideo, err := peerConnection.AddTrack(trackVideo)
 	if err != nil {
-		fmt.Printf("Failed to add video track: %v\n", err)
+		fmt.Printf("[ERROR] Failed to add video track: %v\n", err)
 		return
 	}
 
 	// Print successful addition of Video Track
-	fmt.Printf("Send Video: %+v\n", sendVideo)
+	fmt.Printf("[TRACK] Video Track Created & Added (ID: pion-video)\n")
 
 	// =====================================================================================
 	// ================================ Create Screen Track ================================
@@ -97,22 +100,20 @@ func StartPeerConnecion() {
 		MimeType: webrtc.MimeTypeVP8,
 	}, "screen", "pion-screen")
 
+	// Check for error during track creation
 	if err != nil {
 		panic(err)
 	}
 
-	// Print successful creation of Screen Track
-	fmt.Printf("Screen Track created: %+v\n", trackScreen)
-
 	// Add the screen track to the PeerConnection (RTP Sender)
 	sendScreen, err := peerConnection.AddTrack(trackScreen)
 	if err != nil {
-		fmt.Printf("Failed to add screen track: %v\n", err)
+		fmt.Printf("[ERROR] Failed to add screen track: %v\n", err)
 		return
 	}
 
 	// Print successful addition of Screen Track
-	fmt.Printf("Send Screen: %+v\n", sendScreen)
+	fmt.Printf("[TRACK] Screen Track Created & Added (ID: pion-screen)\n")
 
 	// =====================================================================================
 	// ================================ Handle RTCP Packets ================================
@@ -124,7 +125,6 @@ func StartPeerConnecion() {
 		for {
 			_, _, rtcpErr := sendVideo.Read(rtcpBuf)
 			if rtcpErr != nil {
-				fmt.Printf("RTCP read error: %v\n", rtcpErr)
 				return
 			}
 		}
@@ -136,195 +136,197 @@ func StartPeerConnecion() {
 		for {
 			_, _, rtcpErr := sendScreen.Read(rtcpBuf)
 			if rtcpErr != nil {
-				fmt.Printf("RTCP read error: %v\n", rtcpErr)
 				return
 			}
 		}
 	}()
 
 	// =====================================================================================
-	// ================================ Handle Incoming Track =============================
+	// ================================ Handle Incoming Track ==============================
 	// =====================================================================================
 
-	// Wait for the offer/answer exchange to complete -> Process Signaling
-	offer := webrtc.SessionDescription{}
-	input := readUntilNewLine()
+	peerConnection.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+		// Assign track number based on current track count
+		trackNum := GlobalTrackHandler.TrackCount
+		GlobalTrackHandler.TrackCount++
 
-	if err := decode(input, &offer); err != nil {
-		fmt.Printf("Failed to decode offer: %v\n", err)
-		return
-	}
+		// Print track information
+		fmt.Printf("\n[STREAM-IN] Track Detected! Type: %s | ID: %s | Order: %d\n", track.Kind(), track.ID(), trackNum)
 
-	// Print decoded offer SDP
-	fmt.Printf("Decoded offer SDP: %+v\n", offer)
-
-	// Set the remote SessionDescription
-	peerConnection.OnTrack(
-		func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-			fmt.Printf("Track has started, of type %d: %s \n", track.PayloadType(), track.Codec().MimeType)
-			trackNum := TrackHandler.TrackCount
-			TrackHandler.TrackCount++
-
-			// The last timestamp received
-			var lastTimeStamp uint32
-
-			// Check if the receiver is taking new video or updating existing video
-			var isCurrTrack bool
-
-			for {
-				// Read RTP packets being sent to Pion
-				rtp, _, readErr := track.ReadRTP()
-				if readErr != nil {
-					fmt.Printf("RTP read error: %v\n", readErr)
-					if track.StreamID() == "screen" {
-						TrackHandler.screenInUse = false
-					}
-					return
+		for {
+			// Read RTP packets from the incoming track
+			packet, _, readErr := track.ReadRTP()
+			if readErr != nil {
+				if trackNum > 0 {
+					GlobalTrackHandler.screenInUse = false
+					fmt.Println("[STREAM-END] Screen Sharing Stopped")
 				}
+				return
+			}
 
-				// Change the timestamp to only be the delta
-				if lastTimeStamp == 0 {
-					lastTimeStamp = rtp.Timestamp
-					rtp.Timestamp = 0
-				} else {
-					rtp.Timestamp -= lastTimeStamp
-					lastTimeStamp += rtp.Timestamp
+			// Forward the same packet to the appropriate channel
+			if trackNum == 0 {
+				select {
+				case GlobalTrackHandler.videoPackets <- packet:
+				default:
 				}
-
-				// Check if this is current track
-				// If active, then send RTP packets to the channel
-				if TrackHandler.CurrTrack == trackNum {
-					if !isCurrTrack {
-						isCurrTrack = true
-						// Check if the channel is existing
-						if TrackHandler.videoPackets != nil {
-							if track.Kind() == webrtc.RTPCodecTypeVideo {
-								if track.StreamID() == "video" {
-									TrackHandler.videoPackets <- rtp
-								} else if track.StreamID() == "screen" {
-									TrackHandler.screenInUse = true
-									TrackHandler.screenPackets <- rtp
-								}
-							}
-						}
-					}
-				} else {
-					isCurrTrack = false
+			} else {
+				GlobalTrackHandler.screenInUse = true
+				select {
+				case GlobalTrackHandler.screenPackets <- packet:
+				default:
 				}
 			}
-		})
+		}
+	})
 
+	// =====================================================================================
+	// ================================ Connection State ===================================
+	// =====================================================================================
+
+	// Create a context to manage the lifecycle of the signaling loop
 	ctx, done := context.WithCancel(context.Background())
 
 	// Set the handler for Peer connection state
 	// This will notify you when the peer has connected/disconnected
-
 	peerConnection.OnConnectionStateChange(
 		func(state webrtc.PeerConnectionState) {
 			// If peer connection is closed or failed, exit the program
-			fmt.Printf("Peer connection has changed: %s\n", state.String())
+			fmt.Printf("[STATE] Peer Connection Changed: %s\n", state.String())
 
 			// Handle failed connection
 			if state == webrtc.PeerConnectionStateFailed {
-				fmt.Printf("Timeout Countdown 30s Started \n")
-				done()
+				fmt.Printf("[STATE] Connection Failed - Timeout started \n")
 			}
 
 			// Handle closed connection
 			if state == webrtc.PeerConnectionStateClosed {
-				fmt.Printf("Peer Connection Closed, caused by %s\n", state.String())
+				fmt.Printf("[STATE] Peer Connection Closed\n")
 				done()
 			}
 		})
 
+	// =====================================================================================
+	// ================================ Signaling Loop ==================================
+	// =====================================================================================
+
+	go forwardVideoPackets(trackVideo)   // Forward video packets to the track
+	go forwardScreenPackets(trackScreen) // Forward screen packets to the track
+
+	// Print ready status
+	fmt.Printf("[READY] WebRTC Setup Complete. Awaiting signaling...\n")
+
+	for {
+		select {
+		// Exit the loop if context is done
+		case <-ctx.Done():
+			fmt.Printf("Exiting signaling loop due to context done.\n")
+			return
+		// Handle incoming offer from the channel
+		case offerSDP := <-offerChan:
+			// Process the received offer SDP
+			answerSDP := processOffer(peerConnection, offerSDP)
+			if answerSDP != "" {
+				select {
+				case answerChan <- answerSDP:
+					fmt.Printf("Answer SDP sent successfully.\n")
+				default:
+					fmt.Printf("[WARN] Answer channel is full\n")
+				}
+			}
+		}
+	}
+}
+
+// =====================================================================================
+// ================================ Helper Functions ===================================
+// =====================================================================================
+
+// Process the received offer SDP and return the encoded answer SDP
+func processOffer(peerConnection *webrtc.PeerConnection, offerSDP string) string {
+	fmt.Printf("   > [WEBRTC] Processing Offer SDP... \n")
+
+	// Decode the offer SDP
+	offer := webrtc.SessionDescription{}
+	if err := Decode(offerSDP, &offer); err != nil {
+		fmt.Printf("[ERROR] Failed to decode offer: %v\n", err)
+		return ""
+	}
+
+	// Set the remote SessionDescription
+	if err := peerConnection.SetRemoteDescription(offer); err != nil {
+		fmt.Printf("[ERROR] Failed to set remote description: %v\n", err)
+		return ""
+	}
+
 	// Create answer
 	answer, err := peerConnection.CreateAnswer(nil)
 	if err != nil {
-		fmt.Printf("Failed to create answer: %v\n", err)
-		return
+		fmt.Printf("[ERROR] Failed to create answer: %v\n", err)
+		return ""
 	}
-
-	// Print created answer SDP
-	fmt.Printf("Created answer SDP: %+v\n", answer)
 
 	// Sets the LocalDescription, and starts our UDP listeners
-	gatherComplete := webrtc.GatheringCompletePromise(peerConnection)
-
-	// Error handling for setting local description
-	err = peerConnection.SetLocalDescription(answer)
-	if err != nil {
-		fmt.Printf("Failed to set local description: %v\n", err)
-		return
+	if err := peerConnection.SetLocalDescription(answer); err != nil {
+		fmt.Printf("[ERROR] Failed to set local description: %v\n", err)
+		return ""
 	}
 
-	// Send packet gathering complete signal
+	// Wait for ICE gathering to complete
+	gatherComplete := webrtc.GatheringCompletePromise(peerConnection)
 	<-gatherComplete
 
-	// Output the answer in base64 so we can paste it in browser
-	fmt.Println(encode(peerConnection.CurrentLocalDescription()))
+	// Encode and return the answer SDP
+	encodedAnswer, err := Encode(peerConnection.CurrentLocalDescription())
+	if err != nil {
+		fmt.Printf("[ERROR] Failed to encode answer SDP: %v\n", err)
+		return ""
+	}
 
-	// Asynchronously take all packets in the channel and write them out to our
-	// Video Track
-	go func() {
-		// Keep track of current timestamp for video
-		var currTimestampVideo uint32
-		for i := uint16(0); ; i++ {
-			packet := <-TrackHandler.videoPackets
-			// Timestamp on the RTP packet is really a diff, so we need to add it to current
-			currTimestampVideo += packet.Timestamp
-			packet.Timestamp = currTimestampVideo
-			// Keep increasing sequence number
-			packet.SequenceNumber = i
-			// Write packet to track, with ignoring pipe if nobody is listening
-			if err := trackVideo.WriteRTP(packet); err != nil {
-				fmt.Printf("Failed to write RTP packet: %v\n", err)
-			}
-		}
-	}()
+	fmt.Printf("   > [WEBRTC] Answer Created Successfully\n")
+	return encodedAnswer
+}
 
-	// Screen Track
-	go func() {
-		// Keep track of current timestamp for screen
-		var currTimestampScreen uint32
-		for i := uint16(0); ; i++ {
-			packet := <-TrackHandler.screenPackets
-			// Timestamp on the RTP packet is really a diff, so we need to add it to current
-			currTimestampScreen += packet.Timestamp
-			packet.Timestamp = currTimestampScreen
-			// Keep increasing sequence number
-			packet.SequenceNumber = i
-			// Write packet to track, with ignoring pipe if nobody is listening
-			if err := trackScreen.WriteRTP(packet); err != nil {
-				fmt.Printf("Failed to write RTP packet: %v\n", err)
-			}
-		}
-	}()
-
-	// Wait for connection, then rotate every 5 seconds
-	fmt.Printf("Waiting for connection to rotate tracks...\n")
+// Forward video RTP packets from the channel to the video track
+func forwardVideoPackets(trackVideo *webrtc.TrackLocalStaticRTP) {
 	for {
-		// Case to exit goroutine if context is done
-		select {
-		case <-ctx.Done():
-			fmt.Printf("Exiting track rotation due to context done.\n")
-			return
-		default:
-		}
+		// Take packet from videoPackets channel
+		packet := <-GlobalTrackHandler.videoPackets
 
-		// If there are no tracks, continue waiting
-		if TrackHandler.TrackCount == 0 {
+		// Send it directly without modifying timestamp/sequence
+		if err := trackVideo.WriteRTP(packet); err != nil {
 			continue
 		}
+	}
+}
 
-		// Will be used if the track more than 1 is needed in future
+// Forward screen RTP packets from the channel to the screen track
+func forwardScreenPackets(trackScreen *webrtc.TrackLocalStaticRTP) {
+	for {
+		// Take packet from screenPackets channel
+		packet := <-GlobalTrackHandler.screenPackets
 
-		// fmt.Printf("Waiting 5 seconds before switching to next track...\n")
-		// time.Sleep(5 * time.Second)
-		// if TrackHandler.CurrTrack == TrackHandler.TrackCount-1 {
-		// 	TrackHandler.CurrTrack = 0
-		// } else {
-		// 	TrackHandler.CurrTrack++
-		// }
-		// fmt.Printf("Switched to track #%v\n", TrackHandler.CurrTrack+1)
+		// Send it directly without modifying timestamp/sequence
+		if err := trackScreen.WriteRTP(packet); err != nil {
+			continue
+		}
+	}
+}
+
+// GetTrackStatus returns the current status of tracks (How much Screen and Camera are in use) but for now is not really needed
+func GetTrackStatus() map[string]interface{} {
+	// If no one using TrackHandler, return default values or default map
+	if GlobalTrackHandler == nil {
+		return map[string]interface{}{
+			"screenInUse": false,
+			"cameraInUse": false,
+			"trackCount":  0,
+		}
+	}
+	// Return the current status of tracks
+	return map[string]interface{}{
+		"screenInUse": GlobalTrackHandler.screenInUse,
+		"cameraInUse": !GlobalTrackHandler.screenInUse,
+		"trackCount":  GlobalTrackHandler.TrackCount,
 	}
 }
