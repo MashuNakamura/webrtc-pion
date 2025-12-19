@@ -29,23 +29,19 @@
   <p class="text-gray-600">Test your camera and screen sharing with Pion WebRTC</p>
 </div>
 
-<!-- Controls -->
-<div class="flex justify-center gap-4 mb-8">
-  <button 
-    id="toggleVideo"
-    class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition-all duration-200 transform hover:scale-105 flex items-center gap-2"
-  >
-    <i class="fas fa-video"></i>
-    Start Camera
-  </button>
-  
-  <button 
-    id="toggleScreen"
-    class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition-all duration-200 transform hover:scale-105 flex items-center gap-2"
-  >
-    <i class="fas fa-desktop"></i>
-    Share Screen
-  </button>
+<div class="flex flex-col items-center gap-4 mb-8">
+  <!-- <button id="connectBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-xl font-bold shadow-2xl flex items-center gap-3 transition-all transform hover:scale-105">
+    <i class="fas fa-plug"></i> Connect to Server
+  </button> -->
+
+  <div class="flex justify-center gap-4">
+    <button id="toggleVideo" disabled class="opacity-50 cursor-not-allowed bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold shadow-lg flex items-center gap-2">
+      <i class="fas fa-video"></i> Start Camera
+    </button>
+    <button id="toggleScreen" disabled class="opacity-50 cursor-not-allowed bg-green-600 text-white px-6 py-3 rounded-lg font-semibold shadow-lg flex items-center gap-2">
+      <i class="fas fa-desktop"></i> Share Screen
+    </button>
+  </div>
 </div>
 
 <!-- Video Streams -->
@@ -134,12 +130,13 @@ class WebRTCClient {
   constructor() {
     this.pc = null;
     this.localStream = null;
-    this. screenStream = null;
+    this.screenStream = null;
     this.isVideoActive = false;
     this.isScreenActive = false;
     
     // DOM elements
-    this. localVideo = document.getElementById('localVideo');
+    // this.connectBtn = document.getElementById('connectBtn')
+    this.localVideo = document.getElementById('localVideo');
     this.screenVideo = document.getElementById('screenVideo');
     this.toggleVideoBtn = document.getElementById('toggleVideo');
     this.toggleScreenBtn = document.getElementById('toggleScreen');
@@ -155,9 +152,9 @@ class WebRTCClient {
   }
   
   initEventListeners() {
-    this.toggleVideoBtn.addEventListener('click', () => this.toggleVideo());
-    this.toggleScreenBtn.addEventListener('click', () => this.toggleScreen());
-  }
+  this.toggleVideoBtn.addEventListener('click', () => this.toggleVideo());
+  this.toggleScreenBtn.addEventListener('click', () => this.toggleScreen());
+}
   
   async createPeerConnection() {
     if (this.pc) return;
@@ -166,7 +163,7 @@ class WebRTCClient {
     this.pc = new RTCPeerConnection({
       iceServers: [
         {
-          urls: "stun:stun.l. google.com:19302"
+          urls: "stun:stun.l.google.com:19302"
         }
       ]
     });
@@ -177,11 +174,14 @@ class WebRTCClient {
       }
     };
 
-    this. pc.onconnectionstatechange = () => {
+    this.pc.onconnectionstatechange = () => {
       console.log('Connection state:', this.pc.connectionState);
-      this.updateConnectionStatus(this. pc.connectionState);
+      this.updateConnectionStatus(this.pc.connectionState);
     };
-    
+
+    this.pc.addTransceiver('video', { direction: 'sendrecv' });
+    this.pc.addTransceiver('video', { direction: 'sendrecv' });
+
     console.log('PeerConnection created successfully');
   }
   
@@ -192,7 +192,7 @@ class WebRTCClient {
     switch(state) {
       case 'connected':
         statusEl.className = 'w-2 h-2 bg-green-400 rounded-full animate-pulse';
-        textEl. textContent = 'Connected';
+        textEl.textContent = 'Connected';
         textEl.className = 'text-green-600 font-medium';
         break;
       case 'connecting':
@@ -211,7 +211,29 @@ class WebRTCClient {
         textEl.className = 'text-gray-600';
     }
   }
+
+  // Initialize Connection Function
+  async initConnection() {
+  this.updateConnectionStatus('connecting');
+  await this.createPeerConnection();
   
+  // Send the offer and handle answer
+  await this.sendOffer();
+  
+  // Activate buttons if connected already
+  if (this.connectBtn) { 
+        this.connectBtn.disabled = true;
+        this.connectBtn.innerHTML = '<i class="fas fa-check"></i> Connected';
+        this.connectBtn.className = 'bg-gray-500 text-white px-8 py-4 rounded-xl font-bold shadow-2xl flex items-center gap-3 cursor-not-allowed';
+    }
+  
+  [this.toggleVideoBtn, this.toggleScreenBtn].forEach(btn => {
+    btn.disabled = false;
+    btn.classList.remove('opacity-50', 'cursor-not-allowed');
+  });
+}
+  
+// Toggle Camera
   async toggleVideo() {
     if (this.isVideoActive) {
       this.stopVideo();
@@ -220,42 +242,29 @@ class WebRTCClient {
     }
   }
   
+  // Start Camera Function
   async startVideo() {
-    const stream = await navigator.mediaDevices. getUserMedia({ 
-      video: true, 
-      audio: false 
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      video: true, audio: false 
     });
-    
     this.localStream = stream;
     this.localVideo.srcObject = stream;
     this.isVideoActive = true;
-    
+
+    // Insert video track into the first sender slot (index 0)
+    const sender = this.pc.getSenders()[0];
+    if (sender) await sender.replaceTrack(stream.getVideoTracks()[0]);
+
     // Update UI
     this.localVideo.classList.remove('hidden');
     this.cameraPlaceholder.classList.add('hidden');
-    this.cameraStatus.className = 'w-3 h-3 bg-green-400 rounded-full animate-pulse';
-    this.cameraStatusText.textContent = 'Active';
-    this.cameraStatusText.className = 'text-green-100 text-sm font-medium';
-    
-    // Update button
-    this.toggleVideoBtn.innerHTML = `
-      <i class="fas fa-video-slash"></i>
-      Stop Camera
-    `;
-    this.toggleVideoBtn.className = 'bg-red-600 hover: bg-red-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition-all duration-200 transform hover:scale-105 flex items-center gap-2';
-    
-    await this.createPeerConnection();
-    
-    // Add tracks to peer connection
-    stream.getTracks().forEach(track => {
-      this.pc.addTrack(track, stream);
-    });
-    
-    this.sendOffer();
+    this.toggleVideoBtn.innerHTML = `<i class="fas fa-video-slash"></i> Stop Camera`;
+    this.toggleVideoBtn.className = 'bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition-all duration-200 transform hover:scale-105 flex items-center gap-2';
     
     console.log('Camera started successfully');
   }
   
+  // Stop Camera Function
   stopVideo() {
     if (this.localStream) {
       this.localStream.getTracks().forEach(track => track.stop());
@@ -265,7 +274,7 @@ class WebRTCClient {
     this.isVideoActive = false;
     
     // Update UI
-    this. localVideo.classList.add('hidden');
+    this.localVideo.classList.add('hidden');
     this.localVideo.srcObject = null;
     this.cameraPlaceholder.classList.remove('hidden');
     this.cameraStatus.className = 'w-3 h-3 bg-red-500 rounded-full';
@@ -282,6 +291,7 @@ class WebRTCClient {
     console.log('Camera stopped');
   }
   
+  // Toggle Screen Share
   async toggleScreen() {
     if (this.isScreenActive) {
       this.stopScreen();
@@ -290,47 +300,33 @@ class WebRTCClient {
     }
   }
   
+  // Start Screen Share Function
   async startScreen() {
-    const stream = await navigator. mediaDevices.getDisplayMedia({ 
-      video: true,
-      audio: false
+    const stream = await navigator.mediaDevices.getDisplayMedia({ 
+      video: true, audio: false
     });
-    
     this.screenStream = stream;
     this.screenVideo.srcObject = stream;
     this.isScreenActive = true;
-    
-    // Show screen container
+
+    // Insert screen track into the second sender slot (index 1)
+    const sender = this.pc.getSenders()[1];
+    if (sender) await sender.replaceTrack(stream.getVideoTracks()[0]);
+
+    // Update UI
     this.screenContainer.classList.remove('hidden');
-    
-    // Update button
-    this. toggleScreenBtn.innerHTML = `
-      <i class="fas fa-stop"></i>
-      Stop Sharing
-    `;
+    this.toggleScreenBtn.innerHTML = `<i class="fas fa-stop"></i> Stop Sharing`;
     this.toggleScreenBtn.className = 'bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition-all duration-200 transform hover:scale-105 flex items-center gap-2';
-    
-    await this.createPeerConnection();
-    
-    // Add screen tracks
-    stream.getTracks().forEach(track => {
-      this.pc.addTrack(track, stream);
-    });
-    
-    // Handle when user stops sharing via browser UI
-    stream.getVideoTracks()[0].onended = () => {
-      console.log('Screen sharing ended by user');
-      this.stopScreen();
-    };
-    
-    this.sendOffer();
+
+    // Handle stop event from browser UI
+    stream.getVideoTracks()[0].onended = () => this.stopScreen();
     
     console.log('Screen sharing started successfully');
   }
   
   stopScreen() {
     if (this.screenStream) {
-      this.screenStream.getTracks().forEach(track => track. stop());
+      this.screenStream.getTracks().forEach(track => track.stop());
       this.screenStream = null;
     }
     
@@ -341,7 +337,7 @@ class WebRTCClient {
     this.screenVideo.srcObject = null;
     
     // Update button
-    this. toggleScreenBtn.innerHTML = `
+    this.toggleScreenBtn.innerHTML = `
       <i class="fas fa-desktop"></i>
       Share Screen
     `;
@@ -350,41 +346,72 @@ class WebRTCClient {
     console.log('Screen sharing stopped');
   }
   
+  // Send Offer to Server using /offer Endpoint API
   async sendOffer() {
-    if (!this.pc) return;
-    
-    const offer = await this.pc.createOffer();
-    await this.pc.setLocalDescription(offer);
-    
-    console.log('Sending offer to backend.. .');
-    this.updateConnectionStatus('connecting');
-    
-    // Simple fetch - if fails, just log it
-    fetch('/offer', {
+  if (!this.pc) return;
+
+  // Create Offer
+  const offer = await this.pc.createOffer();
+  await this.pc.setLocalDescription(offer);
+
+  // Wait for ICE Gathering to complete
+  console.log("Mengumpulkan jalur koneksi (ICE)...");
+  await new Promise((resolve) => {
+    if (this.pc.iceGatheringState === 'complete') {
+      resolve();
+    } else {
+      const checkState = () => {
+        if (this.pc.iceGatheringState === 'complete') {
+          this.pc.removeEventListener('icegatheringstatechange', checkState);
+          resolve();
+        }
+      };
+      this.pc.addEventListener('icegatheringstatechange', checkState);
+    }
+  });
+
+  this.updateConnectionStatus('connecting');
+
+  // After ICE gathering is complete, send the offer to the server
+  try {
+    const response = await fetch('/offer', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/sdp' },
-      body: offer. sdp
-    })
-    .then(response => {
-      if (response.ok) {
-        console.log('Backend responded OK');
-        this.updateConnectionStatus('connected');
-      } else {
-        console.log('Backend failed, but that\'s OK for demo');
-        this.updateConnectionStatus('disconnected');
-      }
-    })
-    .catch(err => {
-      console.log('Network error, but that\'s OK for demo:', err. message);
-      this.updateConnectionStatus('disconnected');
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(this.pc.localDescription) // Send the full local description
     });
+
+    if (response.ok) {
+      // Parse the answer from the server
+      const answer = await response.json();
+    
+      // Check if signaling state is stable before setting remote description
+      if (this.pc.signalingState !== "stable") {
+          await this.pc.setRemoteDescription(new RTCSessionDescription(answer));
+          console.log('Koneksi Berhasil!');
+          this.updateConnectionStatus('connected');
+    } else {
+        console.log('Koneksi sudah stable, tidak perlu set answer lagi.');
+    }
+    }
+  } catch (err) {
+    console.error("Gagal konek ke server:", err);
+    this.updateConnectionStatus('failed');
   }
+}
 }
 
 // Initialize when page loads
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // Init WebRTC Client
   window.webrtcClient = new WebRTCClient();
+
   console.log('WebRTC Self View initialized');
+
+  console.log('Creating PeerConnection...');
+
+  await window.webrtcClient.initConnection();
+
+  console.log('PeerConnection created on page load');
 });
 </script>
 
