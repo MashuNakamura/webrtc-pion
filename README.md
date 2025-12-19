@@ -1,6 +1,6 @@
 # WebRTC-Pion
 
-**webrtc-pemjar** is a Go-based project providing a WebRTC implementation for real-time camera streaming and screen sharing. This project serves as a reference or foundation for developing Real-Time Communication (RTC) applications using the Pion library.
+**WebRTC-Pion** is a Go-based project providing a WebRTC implementation for real-time camera streaming and screen sharing. This project serves as a reference or foundation for developing Real-Time Communication (RTC) applications using the Pion library.
 
 ---
 
